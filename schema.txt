@@ -1,0 +1,4 @@
+acctdb -> username, password
+datadb -> sender, receiver, message, timestamp;
+relationdb -> senderid, receiver
+   - sender, reciever.

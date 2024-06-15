@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/segmentio/kafka-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,6 +40,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	clientId := r.URL.Query().Get("clientID")
 	logrus.Infof("Websocket connected to client: [%s]", clientId)
 	clients[clientId] = conn
+	writer := kafka.NewWriter(kafka.WriterConfig{
+		Brokers: []string{"kafka-headless.kafka:9092"},
+	})
+	ctx := context.Background()
 	for {
 		// Read message from WebSocket client
 		_, message, err := conn.ReadMessage()
@@ -45,24 +51,52 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			logger.Errorf("Error reading message: [%s]", err)
 			return
 		}
-		messageQueue <- string(message)
+		err = writer.WriteMessages(ctx, kafka.Message{
+			Topic: "test",
+			Value: message,
+		})
+		if err != nil {
+			logger.Errorf("Error writing from kafka producer: [%s]", err)
+			return
+		}
 	}
 }
 
 func BroadcastMessage() {
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:        []string{"kafka-headless.kafka:9092"},
+		Topic:          "test",
+		Partition:      0,
+		MinBytes:       10e3, // 10KB
+		MaxBytes:       10e6, // 10MB
+		GroupID:        "test-consumer-group",
+		StartOffset:    kafka.LastOffset,
+		CommitInterval: time.Second,
+	})
+	ctx := context.Background()
+	var message MessageStruct
 	for {
-		select {
-		case message := <-messageQueue:
-			var messageS MessageStruct
-			err := json.Unmarshal([]byte(message), &messageS)
-			if err != nil {
-				logger.Errorf("Error unmarshlling: [%s]", err)
-			} else {
-				logger.Infof("Message Struct: [%+v]", messageS)
-				go sendMessageToClient(messageS)
-				go AddMessageToDb(messageS)
-			}
+		m, err := reader.ReadMessage(ctx)
+		if err != nil {
+			logger.Errorf("Error reading message: %v", err)
+			break
 		}
+		err = json.Unmarshal(m.Value, &message)
+		if err != nil {
+			logger.Errorf("Error unmarshlling the message: [%s]", err)
+			logger.Infof("Message at offset %d: [%s]", m.Offset, string(m.Value))
+		} else {
+			logger.Infof("Message at offset %d: [%+v]", m.Offset, message)
+		}
+		err = json.Unmarshal(m.Value, &message)
+		if err != nil {
+			logger.Errorf("Error unmarshlling the message: [%s]", err)
+			logger.Infof("Message at offset %d: [%s]", m.Offset, string(m.Value))
+		} else {
+			logger.Infof("Message at offset %d: [%+v]", m.Offset, message)
+		}
+		go sendMessageToClient(message)
+		go AddMessageToDb(message)
 	}
 }
 

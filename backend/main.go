@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -18,9 +17,9 @@ var (
 func main() {
 	logger = logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	go createProducer()
-	createConsumer()
-	time.Sleep(10 * time.Minute)
+	// go createProducer()
+	// createConsumer()
+	// time.Sleep(10 * time.Minute)
 	connectToDb()
 	go BroadcastMessage()
 	http.HandleFunc("/ws", handleWebSocket)
